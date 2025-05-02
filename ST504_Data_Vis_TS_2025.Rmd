@@ -1,0 +1,1016 @@
+---
+title: "ST504 Data Vis Process"
+output: html_document
+date: "2025-05-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#install.packages("tidyverse")
+#install.packages("ggtree")
+#install.packages("ggtreeExtra")
+#install.packages("ggnewscale")
+#install.packages("paletteer")
+#install.packages("pheatmap")
+#install.packages("highcharter")
+#install.apckages("RColorBrewer")
+
+library(tidyverse)
+library(ggtree)
+library(ggtreeExtra)
+library(ggnewscale)
+library(paletteer)
+library(pheatmap)
+library(dplyr)
+library(highcharter)
+library(RColorBrewer)
+
+```
+
+#Read in Raw Data
+
+```{r Read in Raw Data}
+
+#Read in the EB metadata
+EB_metadata <- read_delim(("~/Desktop/Honours/Data/ST504/bioinformatic_analysis/ST504_15-10-2024_w_name.txt"), 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+
+#Read in SKA Data
+SKA_data <- read_delim(("~/Desktop/Honours/Data/ST504/bioinformatic_analysis/SKA_data.txt"), delim = "\t")
+
+#Read in Fastbaps data
+fastbaps <- read_delim(("~/Desktop/Honours/Data/ST504/bioinformatic_analysis/fastbaps.txt"), delim = ",")
+
+#Read in data for IncF_RST 
+IncF_RST <- read_delim("~/Desktop/Honours/Data/R_ST504/analysis/pipelord/IncF_RST.txt", delim = "\t", col_names = TRUE, show_col_types = FALSE)
+
+#Read in genotype data
+genotype <- read_delim("~/Desktop/Honours/Data/R_ST504/analysis/pipelord/genotype.txt", delim = "\t", col_names = TRUE, show_col_types = FALSE)
+
+#Read in MOBsuite data
+mobsuite <- read_delim("~/Desktop/Honours/Data/R_ST504/analysis/pipelord/mobtyper_results.txt", delim = "\t")
+
+#Read in ABRitamr data
+abritamr <- read_delim("~/Desktop/Honours/Data/R_ST504/analysis/pipelord/abritamr_resistance.txt", delim = "\t")
+
+#Read in AMRfinder data
+amrfinder <- read_delim("~/Desktop/Honours/Data/R_ST504/analysis/pipelord/amrfinder_raw.txt", delim = "\t")
+
+#Read in IntI1 data
+intI1_1 <- read_delim("~/Desktop/Honours/Data/R_ST504/analysis/intI1.txt", delim = "\t")
+
+#Read in tree
+SNP_tree <- read.tree('~/Desktop/Honours/Data/R_ST504/ST504_MPR_CGA_var.tree')
+
+#Read in the colV_status df
+colV_status <- read_delim("~/Desktop/Honours/Data/R_ST504/analysis/pipelord/colV_status.txt", delim = "\t", col_names = TRUE, show_col_types = FALSE)
+
+```
+
+#Read in & prep tree 
+
+```{r Tree Prep}
+
+#Read in tree
+SNP_tree <- read.tree('~/Desktop/Honours/Data/R_ST504/ST504_MPR_CGA_var.tree')
+
+#Set up metadata for tree use
+sample_names <- SNP_tree$tip.label %>% as.data.frame() %>% rename('name' = '.')
+EB_metadata <- left_join(sample_names, EB_metadata, by = 'name')
+
+#Plotting the Base Tree
+SNP_test_tree <- ggtree(SNP_tree) %<+% EB_metadata +
+  geom_tiplab(size = 1.5, align = T) +
+        geom_tiplab(aes(label = `O Antigen(Serotype Prediction)`),
+                    linetype = NULL,
+                    offset = 0.0175,
+                    size = 1.5,
+                    align = T) +
+        geom_tiplab(aes(label = Country),
+                    linetype = NULL,
+                    offset = 0.0075,
+                    size = 1.5,
+                    align = T) +
+        # Turn off legend
+        theme(legend.position = "none")
+
+#For circular tree do: ggtree(SNP_tree, layout = "circular")
+
+tree2 <- ggtree(SNP_tree) %<+% EB_metadata +
+        # Turn off legend
+        theme(legend.position = "none")
+
+```
+
+#Prep IncF RST
+
+```{r IncF RST}
+#PREP - IncF RST DATA 
+IncF_RST <- IncF_RST %>% filter(name %in% sample_names$name)
+IncF_RST2 <- IncF_RST
+IncF_RST <- IncF_RST %>% mutate(IncF_RST2 = str_replace_all(`IncF RST`, "\\*", "")) %>% mutate(IncF_RST2 = str_replace_all(`IncF_RST2`, "\\!", "")) %>% 
+  mutate(IncF_RST2 = str_replace_all(`IncF_RST2`, "\\?", "")) %>% 
+  mutate(IncF_RST2 = str_replace_all(`IncF_RST2`, "\\:", "_"))
+
+IncF_RST <- IncF_RST %>% mutate(present = 1) %>%
+  select(name, `IncF_RST2`, present) #%>%
+#  complete(name, `IncF_RST2`, fill = list(present = 0))
+
+#Rename all "F-_A-_B-" to "none"
+IncF_RST <- IncF_RST %>% mutate(IncF_RST2 = str_replace_all(IncF_RST2, "F-_A-_B-", "none"))
+
+#Rename all other rows, bar the top 3, to "other"
+IncF_RST <- IncF_RST %>% mutate(IncF_RST2 = str_replace_all(IncF_RST2, "F10_A-_B-", "other")) %>%
+  mutate(IncF_RST2 = str_replace_all(IncF_RST2, "F103_A-_B-", "other")) %>% 
+  mutate(IncF_RST2 = str_replace_all(IncF_RST2, "F2_A-_B45", "other")) %>% 
+  mutate(IncF_RST2 = str_replace_all(IncF_RST2, "F2_A-_B-", "other")) %>%
+  mutate(IncF_RST2 = str_replace_all(IncF_RST2, "F34_A-_B-", "other")) %>%
+  mutate(IncF_RST2 = str_replace_all(IncF_RST2, "F35_A-_B-", "other")) %>% 
+  mutate(IncF_RST2 = str_replace_all(IncF_RST2, "F6_A-_B45", "other")) %>% 
+  mutate(IncF_RST2 = str_replace_all(IncF_RST2, "F95/F2_A-_B45", "other")) %>%
+  mutate(IncF_RST2 = str_replace_all(IncF_RST2, "F95/F35_A-_B45", "other")) %>%
+  mutate(IncF_RST2 = str_replace_all(IncF_RST2, "F95/other", "other"))
+
+IncF_RST <- IncF_RST %>% unique() %>%
+  select(-present)
+
+
+
+```
+
+#Prep AMRfinder
+
+```{r AMRfinder}
+
+#Define our thresholds for coverage and identity
+coverage_threshold <- 90
+identity_threshold <- 90
+
+# Define genes we want to remove
+# Note gene names must match exactly
+genes_to_remove <- c("blaEC", "blaEC-5",  # This gene is intrinsic to E. coli
+                     "mcr-9.1", "mcr-9.2", "pmrB_E123D", # This does not confer colistin resistance, only inducible colistin resistance
+                     "glpT_E448K", #Fosfomycin point mutation
+                     "marR_S3N", #Multidrug resistant mutation
+                     "emrD", "ermE", "acrF", #Efflux 
+                     "fabI_G93V") #Triclosan & Isoniazid mutation
+
+# Remove genes we don't want
+amrfinder <- amrfinder %>% filter(!`Gene symbol` %in% genes_to_remove)
+
+# Separate point mutations which are required to have 100% coverage and identity
+point_mutations <- amrfinder %>%
+        filter(Subclass == "POINT") %>%
+        filter(`% Coverage of reference sequence` == 100 & `% Identity to reference sequence` == 100)
+
+# Remove point mutations and anything below identity thresholds
+amrfinder <- amrfinder %>%
+        filter(Subclass != "POINT") %>%
+        filter(`% Coverage of reference sequence` >= coverage_threshold & `% Identity to reference sequence` >= identity_threshold)
+
+# Bind point mutations back in
+amrfinder <- bind_rows(amrfinder, point_mutations)
+
+# Add a column to indicate the gene is present
+amrfinder <- amrfinder %>% mutate(Present = 1)
+
+# Remove duplicate hits within the same genome, prioritising hits with greater nucleotide identity
+amrfinder <- amrfinder %>% arrange(desc(`% Identity to reference sequence`)) %>% group_by(name, `Gene symbol`) %>% slice_head(n = 1) %>% ungroup()
+
+# Give our reporting category
+amrfinder <- amrfinder %>%
+        # Generate a new column for reported class
+        # Signal when genes are point mutation associated
+        mutate(Reported_Class = if_else(`Element subtype` == "POINT", paste0(Class, " POINT"), Class)) %>%
+        # Change beta-lactams to be the subclass
+        mutate(Reported_Class = if_else(Reported_Class == "BETA-LACTAM", Subclass, Reported_Class)) %>%
+        # Combine Streptothricin into aminoglycosides
+        mutate(Reported_Class = if_else(Reported_Class == "STREPTOTHRICIN", "AMINOGLYCOSIDE", Reported_Class)) %>%
+        # Combine Streptothricin into aminoglycosides
+        mutate(Reported_Class = if_else(Reported_Class %in% c("FOSMIDOMYCIN", "FOSFOMYCIN"), "PHOSPHONIC ACIDS", Reported_Class))  %>%
+        # Combine Streptothricin into aminoglycosides
+        mutate(Reported_Class = if_else(Reported_Class %in% c("FOSMIDOMYCIN POINT", "FOSFOMYCIN POINT"), "PHOSPHONIC ACIDS POINT", Reported_Class))
+
+# Generate a table which includes genome names, the class and subclass genes are present for
+amrfinder_class_wise <- amrfinder %>%
+        dplyr::select(name, `Element type`, `Element subtype`, Reported_Class, Present) %>%
+        separate_rows(Reported_Class, sep = "/") %>%
+        unique()
+
+#Remove stress & virulence 
+AMR_classwise <- amrfinder_class_wise %>% filter(`Element type` == "AMR") 
+#AMR_classwise %>% filter(name %in% sample_names$name)
+
+#Pivot wide & full join with the tree sample names
+AMR_classwise_wide <- AMR_classwise %>% select(name, Reported_Class, Present) %>% pivot_wider(names_from = "Reported_Class", values_from = "Present", values_fill = 0) %>% full_join(sample_names, by = "name")
+
+#Find the extra genomes & remove them
+missing_genomes <- setdiff(AMR_classwise_wide$name, sample_names$name)
+AMR_classwise_wide_filt <- AMR_classwise_wide %>%
+  semi_join(sample_names, by = "name")
+
+#Column to rownames
+AMR_classwise_wide_filt <- AMR_classwise_wide_filt%>% column_to_rownames("name")
+AMR_cllasswise_wide <- AMR_classwise_wide %>% column_to_rownames("name")
+
+#Create new df for assessing CIA 
+CIA_classwise <- AMR_classwise_wide_filt %>% select(`QUINOLONE POINT`, QUINOLONE, MACROLIDE, CEPHALOSPORIN, STREPTOGRAMIN) %>% mutate(CIA = ifelse(`QUINOLONE POINT` + QUINOLONE + MACROLIDE + CEPHALOSPORIN + STREPTOGRAMIN >= 1, 1, 0))
+
+#Create new df for assessing MDR 
+MDR_classwise <- AMR_classwise_wide_filt %>% select(AMINOGLYCOSIDE, TRIMETHOPRIM, SULFONAMIDE, TETRACYCLINE, `BETA-LACTAM`, LINCOSAMIDE, PHENICOL) %>% mutate(MDR = ifelse(AMINOGLYCOSIDE + TRIMETHOPRIM + SULFONAMIDE + TETRACYCLINE + `BETA-LACTAM` + LINCOSAMIDE + PHENICOL >= 3, 1, 0))
+
+#Replace NAs for both df with 0
+CIA_classwise <- CIA_classwise %>% mutate_all(~replace(., is.na(.), 0))
+MDR_classwise <- MDR_classwise %>% mutate_all(~replace(., is.na(.), 0))
+
+
+```
+
+#Prep ABRitamr
+
+```{r ABRitamr}
+
+#What we need for fruit is long format, and 1 = Present, 0 = Absent
+
+#Rename Cephalosporin to be 'ESBL' & Rename all other headings to not be capitalised
+AMR_classwise_wide <- AMR_classwise_wide %>% 
+  rename("ESBL" = CEPHALOSPORIN) %>%
+  rename("Aminoglycoside" = AMINOGLYCOSIDE) %>%
+  rename("Trimethoprim" = TRIMETHOPRIM) %>%
+  rename("Quinolone Point" = `QUINOLONE POINT`) %>%
+  rename("Sulfonamide" = SULFONAMIDE) %>%
+  rename("Tetracycline" = TETRACYCLINE) %>%
+  rename("Beta-Lactam" = `BETA-LACTAM`) %>%
+  rename("Macrolide" = MACROLIDE) %>%
+  rename("Lincosamide" = LINCOSAMIDE) %>%
+  rename("Streptogramin" = STREPTOGRAMIN) %>%
+  rename("Quinolone" = QUINOLONE) %>%
+  rename("Phenicol" = PHENICOL)
+
+#AMR_classwise_wide <- AMR_classwise_wide %>% rownames_to_column("name")
+AMR_classwise_wide <- AMR_classwise_wide %>% full_join(sample_names, by = "name")
+  
+#Pivot longer
+AMR_classwise_long <- AMR_classwise_wide %>% pivot_longer(cols = -name, names_to = "Class", values_to = "Gene Presence")
+
+#Change Gene Presence so 1 = Present & 0 = Absent, Change any NA = Absent
+AMR_classwise_long <- AMR_classwise_long %>% 
+  mutate(`Gene Presence` = str_replace(`Gene Presence`, "1", "Present")) %>%
+  mutate(`Gene Presence` = str_replace(`Gene Presence`, "0", "Absent")) %>%
+  mutate(`Gene Presence` = str_replace_na(`Gene Presence`, "Absent"))
+
+#Reorder the Class column so that MDR shows first, then CIA classes
+AMR_classwise_long <- AMR_classwise_long %>% mutate(Class = factor(Class, levels = c("Aminoglycoside", "Beta-Lactam", "Lincosamide", "Phenicol", "Sulfonamide", "Tetracycline", "Trimethoprim", "Streptogramin", "ESBL", "Macrolide", "Quinolone", "Quinolone Point")))
+
+```
+
+#Prep Enterobase AMR data
+
+```{r EB_AMR}
+
+#Create a dataframe for all AMR analysis 
+EB_AMR <- EB_metadata %>% 
+  select('name', matches("AMR analysis")) 
+
+#Pivot the table long to make manipulating data easier
+EB_AMR <- EB_AMR %>% pivot_longer(cols = matches("(AMR analysis)"), names_to = "AMR_genes", values_to = "gene")
+
+#Remove the (AMR analysis) from the names of genes
+EB_AMR <- EB_AMR %>% mutate(AMR_genes = str_replace_all(AMR_genes, "\\(AMR analysis\\)", ""))
+
+#Change "BL inhibitor" to "Betalactam Inhibitor" 
+EB_AMR <- EB_AMR %>% mutate(AMR_genes = str_replace_all(AMR_genes, "BL Inhibitor", "Betalactam Inhibitor"))
+
+#Remove AMR database version, and AMRfinder version
+EB_AMR <- EB_AMR %>% filter(!str_detect(AMR_genes, "AMR"))
+
+#Create a new dataframe which will contain only important genes for further use
+AMR_important <- EB_AMR %>% select('name', 'AMR_genes', 'gene')
+
+#Keep only important genes
+AMR_important <- AMR_important %>% filter(AMR_genes %in% c("ESBL", "Quinolone", "Tetracycline", "Macrolide", "Aminoglycoside", "Trimethoprim"))
+
+#Change the gene column to contain a '1' if a gene is present
+AMR_important <- AMR_important %>% mutate(presence = if_else(gene == "-", "absent", "present"))
+
+#Stuff for new fig
+test <- AMR_important %>% filter(gene != "-") %>% separate_rows(gene, sep = ",") %>% arrange(AMR_genes, gene) %>% rename(Class = AMR_genes)
+
+```
+
+#Prep Genotype Data 
+
+```{r Genotype}
+
+#PREP - GENOTYPE DATA 
+
+#Remove .fasta from the "name" column
+genotype <- genotype %>% mutate(name = str_replace_all(name, "\\.fasta", ""))
+
+#Filter for %coverage >= 90%
+genotype <- genotype %>% filter(`%IDENTITY` >= 90) %>%
+  filter(`%COVERAGE` >= 90) %>% 
+  filter(name %in% sample_names$name)
+
+#Add genotype data for genes (specifically shigatoxins), use filter(GENE %in% c("gene1", "gene2"))
+genotype2 <- genotype %>% filter(GENE %in% c("stx1B", "stxA", "stx2A", "stx2B", "iucD", "fyuA/psn", "kpsT", "neuC", "senB", "east1", "escC", "espA", "iroN", "cdtA", "sfaE", "cvaA", "cvaB", "cvaC", "eae","iss_type3_UTI89_CP000243"))
+
+#genotype2 <- genotype %>% filter(grepl('iss', 'ISS', GENE))
+
+#Change dataframe to have columns: name, GENE, present
+genotype2 <- genotype2 %>% mutate(Presence = 1) %>% 
+  select(name, GENE, Presence)
+
+#Join dataframe by 'name', then remove any NA values in 'GENE' column
+genotype2 <- left_join(sample_names, genotype2, by = "name") %>%
+  complete(name, GENE, fill = list(Presence = 0)) %>%
+  filter(!is.na(GENE))
+
+#Changing the values in cell from 0 or 1 to 'absent' or 'present'
+genotype2 <- genotype2 %>% mutate(Presence = if_else(Presence == 0, 'Absent', 'Present'))
+
+#Rename iss gene 
+genotype2 <- genotype2 %>% mutate(GENE = str_replace(GENE, "iss_type3_UTI89_CP000243", "iss type3"))
+
+#fix Genotype df to make Legend nicer
+genotype3 <- genotype2 %>% rename(`Gene Presence` = Presence)
+
+```
+
+#Prep SKA Data 
+
+```{r SKA}
+
+#Extract a data frame from a tree object, remove all non tip data (i.e. non genomes/nodes) and arrange by y position (i.e. tree order). Then extract the labels in the order they appear in the tree
+column_order <- SNP_test_tree$data %>% filter(isTip == T) %>% arrange(y) %>% pull(label)
+
+#Converting the sample 1 / 2 column to a factor with the levels set to the order from the tree
+SKA_data <- SKA_data %>% rename(sample_2 = `Sample 2`) %>% mutate(sample_2 = factor(sample_2, levels = column_order))
+SKA_data <- SKA_data %>% rename(sample_1 = `Sample 1`) %>% mutate(sample_1 = factor(sample_1, levels = column_order))
+
+#Note that ggfruit needs to find an x value and a y value to plot in the SNP matrix fruit object. However, a given sample might occur in the SKA data in either the sample 1 or sample 2 column but not both. So we need to create new rows for each sample so that they occur in both the sample 1 and sample 2 columns
+SKA_data <- SKA_data %>% select(sample_1, sample_2, SNPs) %>% rename(tmp = sample_1) %>% rename(sample_1 = sample_2) %>% rename(sample_2 = tmp) %>% bind_rows(SKA_data)
+
+```
+
+#Prep FastBAPS data
+
+```{r Fastbaps}
+
+#Pivot Fastbaps data
+fastbaps_long <- fastbaps %>%
+        pivot_longer(cols = -Isolates, names_to = "Level", values_to = "Group") %>%
+        mutate(Level = str_replace(Level, " ", "_")) %>%
+        mutate(Group = as.character(Group)) %>% rename(name = Isolates)
+
+fastbaps <- fastbaps %>% rename(name = Isolates) 
+
+fastbaps_level2 <- fastbaps_long %>% filter(Level == "Level_2")
+fastbaps_level1_2 <- fastbaps_long %>% filter(Level %in% c('Level_1', 'Level_2'))
+
+fastbaps_level1_2 <- fastbaps_level1_2 %>% 
+  mutate(Lineage = Level, `Lineage/Sublineage` = Group) %>%
+  mutate(Lineage = str_replace(Lineage, "Level_1", "Lineage")) %>%
+  mutate(Lineage = str_replace(Lineage, "Level_2", "Sublineage")) %>% 
+  mutate(`Lineage/Sublineage` = paste0(Lineage, "_", `Lineage/Sublineage`)) %>% 
+  mutate(`Lineage/Sublineage` = str_replace(`Lineage/Sublineage`, "Lineage_1", "B")) %>%
+  mutate(`Lineage/Sublineage` = str_replace(`Lineage/Sublineage`, "Lineage_2", "A")) %>%
+  mutate(`Lineage/Sublineage` = str_replace(`Lineage/Sublineage`, "Lineage_3", "C")) %>%
+  mutate(`Lineage/Sublineage` = str_replace(`Lineage/Sublineage`, "Sublineage_1", "B1")) %>%
+  mutate(`Lineage/Sublineage` = str_replace(`Lineage/Sublineage`, "Sublineage_2", "A2")) %>%
+  mutate(`Lineage/Sublineage` = str_replace(`Lineage/Sublineage`, "Sublineage_3", "A1")) %>%
+  mutate(`Lineage/Sublineage` = str_replace(`Lineage/Sublineage`, "Sublineage_4", "A3")) %>%
+  mutate(`Lineage/Sublineage` = str_replace(`Lineage/Sublineage`, "Sublineage_5", "C2")) %>%
+  mutate(`Lineage/Sublineage` = str_replace(`Lineage/Sublineage`, "Sublineage_6", "C1"))
+
+#For individual fruit object Level 1
+fastbaps_edit <- fastbaps_long %>% filter(Level == "Level_1") %>% rename(Clade = Group) %>% mutate(Clade = str_replace(Clade, "1", "B")) %>% mutate(Clade = str_replace(Clade, "2", "A")) %>% mutate(Clade = str_replace(Clade, "3", "C"))
+
+```
+
+#SNP & Clade relatedness using SKA
+
+```{r SNP & clade relatedness}
+SKA_analysis <- SKA_data %>% rename(name = sample_1) %>%
+        left_join(fastbaps, by = 'name') %>%
+        rename(sample_1 = name) %>%
+        rename(name = sample_2) %>%
+        left_join(fastbaps, by = 'name') %>%
+        rename(sample_2 = name) %>%
+        select(matches('sample'), matches('Level 1'), matches('Level 2'), SNPs) %>%
+        select(`Level 1.x`, `Level 2.x`, sample_1, SNPs, sample_2, `Level 2.y`, `Level 1.y`) %>%
+        filter(`Level 2.x` != `Level 2.y`) %>%
+        group_by(`Level 2.x`, `Level 2.y`) %>%
+        summarise(min_SNPs = min(SNPs), max_SNPs = max(SNPs), mean_SNPs = mean(SNPs), median_SNPs = median(SNPs), sd_SNPs = sd(SNPs), n = n()) 
+```
+
+#Prep intI1 & IS26 data
+
+```{r intI1 & IS26}
+
+#intI1 data from intI1_1
+int_1 <- intI1_1 %>% select(name, sseqid) %>%
+  rename("intI1" = sseqid) %>%
+  mutate(intI1 = str_replace(intI1, "intI1_HQ730118.1", "Present"))
+
+#Remove everything after sample names
+int_1 <- int_1 %>% mutate(name = str_replace(name, "\\.fasta.*", "")) %>%
+  full_join(sample_names, by = "name")
+
+#IS26 Data from genotype df & Rename
+IS26_1 <- genotype %>% select(name, GENE) %>% 
+  rename("gene" = "GENE") %>% 
+  filter(grepl("^IS26", gene))%>% 
+  mutate(gene = str_replace(gene, "IS26.*", "IS26")) %>% 
+  full_join(sample_names, by = "name")
+
+#full join IS26 & intI1 & fix all values to be Present or Absent
+int_IS <- int_1 %>% full_join(IS26_1, by = "name") %>%
+  rename("IS26" = gene) %>%
+  mutate(IS26 = str_replace(IS26, "IS26", "Present")) %>%
+  mutate(intI1 = str_replace_na(intI1, "Absent")) %>%
+  mutate(IS26 = str_replace_na(IS26, "Absent"))
+
+#Make a new intIS df for stats
+intIS <- int_IS %>% mutate(across(-name, ~ ifelse(. == "Present", 1, 0)))
+
+#Create a df for int_IS to add as a multiple fruit 
+int_3 <- int_IS %>% pivot_longer(cols = c(IS26, intI1), names_to = "Gene", values_to = "Presence") %>% rename(`intI1 & IS26` = Presence)
+
+
+```
+
+#Prep MOBsuite Data
+
+```{r Mobsuite}
+
+mobsuite <- mobsuite %>% filter(molecule_type != "chromosome")
+
+#Aggregate rep type info for strain plasmid cluster into a single row
+mobsuite_simple <- mobsuite %>% 
+  select(sample_id,
+         molecule_type,
+         primary_cluster_id,
+         `rep_type(s)`,
+         `relaxase_type(s)`) %>% 
+  arrange(sample_id, primary_cluster_id) %>% 
+  separate_rows(`rep_type(s)`, sep = ",") %>% 
+  unique() %>% 
+  group_by(sample_id, primary_cluster_id) %>% 
+  mutate(rep_types = paste0(`rep_type(s)`, collapse = ",")) %>% 
+  select(-`rep_type(s)`) %>% 
+  unique() 
+
+#Aggregate relaxase type info for strain plasmid cluster into a single row
+mobsuite_simple <- mobsuite_simple %>% 
+  separate_rows(`relaxase_type(s)`, sep = ",") %>% 
+  unique() %>% 
+  group_by(sample_id, primary_cluster_id) %>% 
+  mutate(relaxase_types = paste0(`relaxase_type(s)`, collapse = ",")) %>% 
+  select(-`relaxase_type(s)`) %>% 
+  unique()
+
+mobsuite_simple <- mobsuite_simple %>% rename("name" = sample_id)
+
+#Using Fastbaps with Mobsuite
+fastbaps_lineages <- fastbaps_level1_2 %>% select(-Level, -Group) %>% 
+  pivot_wider(names_from = Lineage, values_from = `Lineage/Sublineage`)
+
+mobsuite_fast <- mobsuite_simple %>% full_join(fastbaps_lineages, by = "name")
+
+mobsuite_fast <- mobsuite_fast %>% mutate(primary_cluster_id = str_replace(primary_cluster_id, "novel.*", "Novel"))
+
+mobsuite_fruit <- mobsuite_fast %>% 
+  ungroup() %>% select(name, primary_cluster_id) %>% 
+  mutate(present = "Present") %>% 
+  complete(name, primary_cluster_id, fill = list(present = "Absent")) %>% 
+  filter(primary_cluster_id != "Novel")
+
+#Perform hierachial clustering on mobsuite plasmid profiles
+mob_heat <- mobsuite_fruit %>% mutate(value = if_else(present == "Present", 1, 0)) %>% select(-present) %>% unique() %>% pivot_wider(names_from = "primary_cluster_id", values_from = "value") %>% column_to_rownames("name") %>% pheatmap()
+
+hclus_plasmid_order <- mob_heat$tree_col$order
+hclus_plasmid_name <- mob_heat$tree_col$labels
+
+mobsuite_fruit_col_order <- hclus_plasmid_name[hclus_plasmid_order]
+
+mobsuite_fruit <- mobsuite_fruit %>% mutate(primary_cluster_id = factor(primary_cluster_id, levels = mobsuite_fruit_col_order))
+
+mobsuite_fruit1 <- mobsuite_fruit %>% right_join(sample_names, by = "name")
+
+#Working on the present column in mobsuite_fruit1
+result <- mobsuite_fruit1 %>%
+  group_by(primary_cluster_id, present) %>% 
+  tally() %>%
+  spread(key = present, value = n, fill = 0)
+
+#Calculate total no. of unique names
+total_names <- n_distinct(mobsuite_fruit1$name)
+
+#5% of name population
+threshold <- total_names * 0.05
+
+#Count occurrences of 'present' for each cluster_id & the no of unique names
+
+mob_filt <- mobsuite_fruit1 %>%
+  filter(present == 'Present') %>%
+  group_by(primary_cluster_id) %>%
+  summarise(unique_names_count = n_distinct(name)) %>%
+  filter(unique_names_count >= threshold)
+
+#Filter the mobsuite_fruit1 df to only include the above clusters
+mob_fruit1_filt <- mobsuite_fruit1 %>%
+  filter(primary_cluster_id %in% mob_filt$primary_cluster_id) %>%
+  select(name, primary_cluster_id, present)
+
+#Rename Presence column 
+
+mob_fruit1_filt <- mob_fruit1_filt %>% 
+  rename(`Plasmid Cluster Presence` = "present")
+
+```
+
+#Setting up fruit colours for tree
+
+```{r Tree Cols}
+#Create df for Serotype, Collection Year & Collection Continent
+EB_meta_filt <- EB_metadata %>% select(name, `Collection Year`, Continent, Country, `O Antigen(Serotype Prediction)`)
+
+#Rename O type column & change all values to include ":H7", "-" = "untypable, & "uncertain" = "Unknown"
+EB_meta_filt <- EB_meta_filt %>% 
+  rename("Year" = `Collection Year`) %>% 
+  rename("Serotype" = `O Antigen(Serotype Prediction)`) %>% 
+  mutate(Serotype = str_replace(Serotype, "O156", "O156:H7")) %>%
+  mutate(Serotype = str_replace(Serotype, "O117", "O117:H7")) %>%
+  mutate(Serotype = str_replace(Serotype, "O166", "O166:H7")) %>% 
+  mutate(Serotype = str_replace(Serotype, "O12", "O12:H7")) %>% 
+  mutate(Serotype = str_replace(Serotype, "O3", "O3:H7")) %>% 
+  mutate(Serotype = str_replace(Serotype, "-", "Untypable")) %>%
+  mutate(Serotype = str_replace(Serotype, "uncertain", "Untypable"))
+
+#Change all NA in Continent & Year to be "Unknown"
+EB_meta_filt <- EB_meta_filt %>% 
+  mutate(Year = str_replace_na(Year, "Unknown")) %>%
+  mutate(Continent = str_replace_na(Continent, "Unknown")) %>%
+  mutate(Country = str_replace_na(Country, "Unknown"))
+
+EB_meta_filt <- EB_meta_filt %>% full_join(sample_names, by = "name")
+
+#Make them their own individual df
+Serotype <- EB_meta_filt %>% select(name, Serotype)
+Continent <- EB_meta_filt %>% select(name, Continent)
+Year <- EB_meta_filt %>% select(name, Year)
+Country <- EB_meta_filt %>% select(name, Country)
+
+#Create the colours for fruit objects
+cont_names <- EB_meta_filt$Continent %>% unique()
+serotype_names <- EB_meta_filt$Serotype %>% unique()
+year_names <- c(min(EB_meta_filt$Year):2024, "Unknown")
+country_names <- EB_meta_filt$Country %>% unique()
+
+#Serotype Colours
+serotype_cols <- c("#4B0082",
+  "#8E6A56",
+  "#F0A500",
+  "#E6B78D",
+  "#4E8C8B",
+  "#e0e0e0")
+
+#Country Colours
+country_cols <- c(
+    "Australia" = "#A23C26",
+    "Belgium" = "#748C69",
+    "Cambodia" = "#405580",
+    "Canada" = "#E2552C",
+    "Denmark" = "#FF9A90",
+    "France" = "#BDB0D0",
+    "Germany" = "#515B87",
+    "Kenya" = "#F8D974",
+    "Mexico" = "#00AB78",
+    "Netherlands" = "#42BDCB",
+    "Peru" = "#BCABA0",
+    "Portugal" = "#B99984",
+    "Switzerland" = "#EFD1C6",
+    "United Kingdom" = "#578CA9",
+    "United States" = "#5A7247",
+    "Unknown" = "#e0e0e0")
+
+#Year colour options
+year_cols <- colorRampPalette(c("forestgreen", "#F8D974", "navy"))(length(2007:2024))
+year_cols <- c("red", rep("black", 18), year_cols, "#e0e0e0")
+
+names(country_cols) <- cont_names
+names(serotype_cols) <- serotype_names
+names(year_cols) <- year_names
+
+#Clade Designation Colours 
+clade_cols <- c(
+  "A" = '#FF0000',
+  "A1" = '#FF0000',
+  "A2" = '#FF6666',
+  "A3" = '#FFCCCC',
+  "B" = '#1b9e77',
+  "B1" = '#1b9e77',
+  "C" = '#4575b4',
+  "C1" = '#4575b4',
+  "C2" = '#91bfdb'
+)
+
+#ARG colours
+ARG_cols <- list('Absent' = "#e0e0e0", 'Present' = "#5F9EA0")
+
+#VAG colours
+stx_cols <- list('Absent' = '#e0e0e0', 'Present' = '#9b1b30')
+
+#intI1 & IS26
+intI1_names <- int_IS$intI1 %>% unique()
+IS26_names <- int_IS$IS26 %>% unique()
+intI1_cols <- list('Absent' = "#e0e0e0", 'Present' = "#556B2F")
+IS26_cols <- list('Absent' = "#e0e0e0", 'Present' = "#7B68EE")
+
+#IncF RST colours
+incf_rst_names <- IncF_RST %>% pull(IncF_RST2) %>% sort() %>% unique()
+incf_rst_cols <- c('#628474', '#52574d', '#8d7d5f', '#746c97', '#e0e0e0')
+names(incf_rst_cols) <- incf_rst_names
+
+
+
+```
+
+#VAG tree + fastbaps
+
+```{r VAG tree}
+
+VAG_p <- tree2 +
+        new_scale_fill() +
+        #Fastbaps
+        geom_fruit(
+          data = fastbaps_level1_2, 
+          geom = geom_tile,
+          mapping = aes(y = name, x = Lineage, fill = `Lineage/Sublineage`),
+          pwidth = 0.07,
+          offset = 0.1,
+          axis.params=list(
+            axis="x",
+            text.angle = 90,
+            text.size = 3,
+            line.size = 0,
+            vjust = 0,
+            hjust = 1)) +
+        scale_fill_manual(values = clade_cols) +
+        new_scale_fill() +
+        #VAG presence
+        geom_fruit(
+          data = genotype3,
+          geom = geom_tile,
+          mapping = aes(y = name, x = GENE, fill = `Gene Presence`),
+          offset = 0.05,
+          pwidth = 0.8,
+          axis.params = list(
+            axis = 'x',
+            text.angle = 90,
+            hjust = 1,
+            text.size = 3)) + 
+        scale_fill_manual(values = stx_cols) +
+          ylim(-50, NA) +
+  theme(legend.position = "right", 
+        legend.key.size = unit(0.5, "cm"), 
+        legend.text = element_text(size = 8), 
+        legend.title = element_text(size = 7), 
+        plot.margin = margin(0.5, 0.5, 0.5, 1, "cm"), 
+        legend.spacing.y = unit(0.25, "cm"), 
+        legend.direction = "horizontal")
+
+```
+
+#ARG tree + fastbaps
+
+```{r}
+#Tree + Lineage/Sublineage + IntI1 & IS26 + ARG presence
+
+ARG_p <- tree2 +
+  new_scale_fill() +
+  geom_fruit(
+    data = fastbaps_level1_2,
+    #Fastbaps
+    geom = geom_tile,
+    mapping = aes(y = name, x = Lineage, fill = `Lineage/Sublineage`),
+    pwidth = 0.05,
+    offset = 0.05,
+    axis.params = list(
+      axis = "x",
+      text.angle = 90,
+      text.size = 3,
+      line.size = 0,
+      vjust = 0.5,
+      hjust = 1)) +
+  scale_fill_manual(values = clade_cols) +
+  new_scale_fill() + 
+  #IntI1 & IS26
+  geom_fruit(
+    data = int_3, 
+    geom = geom_tile, 
+    mapping = aes(y = name, x = Gene, fill = `intI1 & IS26`), 
+    pwidth = 0.05,
+    offset = 0.035,
+    axis.params = list(
+      axis = "x",
+      text.angle = 90,
+      text.size = 3,
+      line.size = 0,
+      vjust = 0.5,
+      hjust = 1)) +
+  scale_fill_manual(values = c(IS26_cols, intI1_cols)) + 
+  new_scale_fill() +
+  #ARG carriage
+  geom_fruit(
+    data = AMR_classwise_long, 
+    geom = geom_tile, 
+    mapping = aes(y = name, x = Class, fill = `Gene Presence`), 
+    pwidth = 0.5,
+    offset = 0.035,
+    axis.params = list(
+      axis = "x",
+      text.angle = 90,
+      text.size = 3,
+      line.size = 0,
+      vjust = 0.5,
+      hjust = 1)) + 
+  scale_fill_manual(values = ARG_cols) + 
+  #Legend configuration
+  ylim(-50, NA) +
+  theme(legend.position = "right", 
+        legend.key.size = unit(0.5, "cm"), 
+        legend.text = element_text(size = 8), 
+        legend.title = element_text(size = 7), 
+        plot.margin = margin(0.5, 0.5, 0.5, 1, "cm"), 
+        legend.spacing.y = unit(0.25, "cm"), 
+        legend.direction = "horizontal")
+
+```
+
+#Supplementary - SNP distance Matrix
+
+```{r SNP}
+#SNP & Fastbaps designations
+SNP_test_tree +
+        # Super handy new package for helping separate aesthetic mappings/colour schemes for different layers
+        new_scale_fill() +
+        # Add a fruit layer
+        geom_fruit(data = fastbaps_long, 
+                   geom = geom_tile,
+                   mapping = aes(y = name,
+                                 x = Level,
+                                 fill = `Group`),
+                   pwidth = 2,
+                   offset = 2,
+                   axis.params=list(
+                           axis="x",
+                           text.angle = 90,
+                           text.size = 3,
+                           line.size = 0,
+                           vjust = 0,
+                           hjust = 1
+                   )) +
+        paletteer::scale_fill_paletteer_d("rcartocolor::Emrld") +
+        new_scale_fill() +
+        # Add a fruit layer
+        geom_fruit(data = SKA_data, # Use the modified data
+                   geom = geom_tile,
+                   mapping = aes(y = sample_1,
+                                 x = sample_2,
+                                 fill = `SNPs`),
+                   pwidth = 12,
+                   offset = 0.5,
+                   axis.params=list(
+                           axis="x",
+                           text.angle = 90,
+                           text.size = 1.5,
+                           line.size = 0,
+                           vjust = 0,
+                           hjust = 1
+                   )) +
+        scale_fill_distiller(palette = "Spectral", direction = 1) +
+        #scale_fill_binned("viridis:magma", breaks = c(1, 20, 50, 100, 400)) +
+        #paletteer::scale_fill_paletteer_c("viridis::magma") +
+        ylim(-50, NA) +
+        theme(legend.position = "right")
+
+#SNP with modified data 
+
+```
+
+#Supplementary - Mobsuite Trees
+
+```{r Mobsuite}
+
+#Mobsuite tree only
+
+Mob_p <- tree2 + 
+  new_scale_fill() +
+  geom_fruit(
+    data = mob_fruit1_filt,
+    geom = geom_tile,
+    mapping = aes(y = name, x = primary_cluster_id, fill = `Plasmid Cluster Presence`),
+    offset = 0.035,
+    pwidth = 2,
+    axis.params = list(
+      axis = 'x',
+      text.angle = 90,
+      hjust = 1.5,
+      text.size = 2.5)) + 
+  ylim(-50, NA) +
+  scale_fill_manual(values = c("Present" = "#4B0082", "Absent" = "#e0e0e0"))
+
+#Mobsuite tree + IncF 
+
+Mob_p2 <- tree2 +
+        new_scale_fill() +
+        #Fastbaps
+        geom_fruit(
+          data = fastbaps_level1_2, 
+          geom = geom_tile,
+          mapping = aes(y = name, x = Lineage, fill = `Lineage/Sublineage`),
+          pwidth = 0.1,
+          offset = 0.1,
+          axis.params=list(
+            axis="x",
+            text.angle = 90,
+            text.size = 2.5,
+            line.size = 0,
+            vjust = 0,
+            hjust = 1)) +
+        scale_fill_manual(values = clade_cols) +
+        new_scale_fill() +
+  #IncF_RST
+  geom_fruit(
+  data = IncF_RST,
+  geom = geom_tile,
+  mapping = aes(y = name, fill = IncF_RST2),
+  offset = 0.18,
+  pwidth = 0.0009) +
+  scale_fill_manual(values = incf_rst_cols) +
+  new_scale_fill() +
+  #Mobsuite
+    geom_fruit(
+    data = mob_fruit1_filt,
+    geom = geom_tile,
+    mapping = aes(y = name, x = primary_cluster_id, fill = `Plasmid Cluster Presence`),
+    offset = 0.12,
+    pwidth = 2,
+    axis.params = list(
+      axis = 'x',
+      text.angle = 90,
+      hjust = 1,
+      text.size = 2.5)) + 
+   scale_fill_manual(values = c("Present" = "#4B0082", "Absent" = "#e0e0e0")) + 
+  ylim(-50, NA) +
+   theme(legend.position = "right", 
+        legend.key.size = unit(0.5, "cm"), 
+        legend.text = element_text(size = 8), 
+        legend.title = element_text(size = 7), 
+        plot.margin = margin(0.5, 0.5, 0.5, 1, "cm"), 
+        legend.spacing.y = unit(0.25, "cm"), 
+        legend.direction = "horizontal")
+
+
+
+#Mobsuite tree + IncF + VAG 
+
+Mob_VInc <- tree2 +
+        new_scale_fill() +
+        #Fastbaps
+        geom_fruit(
+          data = fastbaps_level1_2, 
+          geom = geom_tile,
+          mapping = aes(y = name, x = Lineage, fill = `Lineage/Sublineage`),
+          pwidth = 0.1,
+          offset = 0.1,
+          axis.params=list(
+            axis="x",
+            text.angle = 90,
+            text.size = 2.5,
+            line.size = 0,
+            vjust = 0,
+            hjust = 1)) +
+        scale_fill_manual(values = clade_cols) +
+        new_scale_fill() +
+  #IncF_RST
+  geom_fruit(
+  data = IncF_RST,
+  geom = geom_tile,
+  mapping = aes(y = name, fill = IncF_RST2),
+  offset = 0.2,
+  pwidth = 0.0009) +
+  scale_fill_manual(values = incf_rst_cols) +
+  new_scale_fill() +
+  #Mobsuite
+    geom_fruit(
+    data = mob_fruit1_filt,
+    geom = geom_tile,
+    mapping = aes(y = name, x = primary_cluster_id, fill = `Plasmid Cluster Presence`),
+    offset = 0.12,
+    pwidth = 2,
+    axis.params = list(
+      axis = 'x',
+      text.angle = 90,
+      hjust = 1,
+      text.size = 2.5)) + 
+   scale_fill_manual(values = c("Present" = "#4B0082", "Absent" = "#e0e0e0")) +
+  new_scale_fill()+ 
+  #VAG
+  geom_fruit(
+    data = genotype3,
+    geom = geom_tile,
+    mapping = aes(y = name, x = GENE, fill = `Gene Presence`),
+    offset = 0.13,
+    pwidth = 2,
+    axis.params = list(
+      axis = 'x',
+      text.angle = 90,
+      hjust = 1,
+      text.size = 2.5)) + 
+  scale_fill_manual(values = stx_cols) +
+  ylim(-50, NA) +
+   theme(legend.position = "right", 
+        legend.key.size = unit(0.5, "cm"), 
+        legend.text = element_text(size = 8), 
+        legend.title = element_text(size = 7), 
+        plot.margin = margin(0.5, 0.5, 0.5, 1, "cm"), 
+        legend.spacing.y = unit(0.25, "cm"), 
+        legend.direction = "horizontal")
+
+#Mobsuite tree + IncF + ARG
+
+Mob_ARG <- tree2 +
+        new_scale_fill() +
+        #Fastbaps
+        geom_fruit(
+          data = fastbaps_level1_2, 
+          geom = geom_tile,
+          mapping = aes(y = name, x = Lineage, fill = `Lineage/Sublineage`),
+          pwidth = 0.1,
+          offset = 0.1,
+          axis.params=list(
+            axis="x",
+            text.angle = 90,
+            text.size = 2.5,
+            line.size = 0,
+            vjust = 0,
+            hjust = 1)) +
+        scale_fill_manual(values = clade_cols) +
+        new_scale_fill() +
+  #IncF_RST
+  geom_fruit(
+  data = IncF_RST,
+  geom = geom_tile,
+  mapping = aes(y = name, fill = IncF_RST2),
+  offset = 0.18,
+  pwidth = 0.0009) +
+  scale_fill_manual(values = incf_rst_cols) +
+  new_scale_fill() +
+  #Mobsuite
+    geom_fruit(
+    data = mob_fruit1_filt,
+    geom = geom_tile,
+    mapping = aes(y = name, x = primary_cluster_id, fill = `Plasmid Cluster Presence`),
+    offset = 0.12,
+    pwidth = 2,
+    axis.params = list(
+      axis = 'x',
+      text.angle = 90,
+      hjust = 1,
+      text.size = 2.5)) + 
+   scale_fill_manual(values = c("Present" = "#4B0082", "Absent" = "#e0e0e0")) +
+  new_scale_fill()+ 
+  #ARG
+  geom_fruit(
+    data = AMR_classwise_long, 
+    geom = geom_tile, 
+    mapping = aes(y = name, x = Class, fill = `Gene Presence`), 
+    offset = 0.09,
+    pwidth = 1.5,
+    axis.params = list(
+      axis = "x",
+      text.angle = 90,
+      text.size = 2.5,
+      line.size = 0,
+      vjust = 0,
+      hjust = 1)) + 
+  scale_fill_manual(values = ARG_cols) + 
+  ylim(-50, NA) +
+   theme(legend.position = "right", 
+        legend.key.size = unit(0.5, "cm"), 
+        legend.text = element_text(size = 8), 
+        legend.title = element_text(size = 7), 
+        plot.margin = margin(0.5, 0.5, 0.5, 1, "cm"), 
+        legend.spacing.y = unit(0.25, "cm"), 
+        legend.direction = "horizontal")
+
+```
+
+
+
+

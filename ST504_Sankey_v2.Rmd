@@ -1,0 +1,236 @@
+---
+title: "Sankey_test_v1"
+output: html_document
+date: "2025-02-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#install.packages("highcharter")
+#install.packages("ggExtra")
+
+library(tidyverse)
+library(ggtree)
+library(ggExtra)
+library(dplyr)
+library(highcharter)
+library(RColorBrewer)
+
+
+```
+
+```{r Read in relevant data}
+
+#Read in EB Data
+EB_metadata <- read_delim(("~/Desktop/Honours/Data/ST504/bioinformatic_analysis/ST504_15-10-2024_w_name.txt"), 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+
+# test_tree <- read.tree('~/Desktop/Honours/Data/ST504/bioinformatic_analysis/ST504_mash.tree')
+# 
+# test_tree <- midpoint_root(test_tree)
+
+SNP_tree <- read.tree('~/Desktop/Honours/Data/R_ST504/ST504_MPR_CGA_var.tree')
+
+# #Set up metadata for tree use
+sample_names <- SNP_tree$tip.label %>% as.data.frame() %>% rename('name' = '.')
+# 
+EB_metadata <- left_join(sample_names, EB_metadata, by = 'name')
+
+#Make a dataframe with O-Antigen data & sample names from EB_data
+Antigen_data <- EB_metadata %>% select(name, `O Antigen(Serotype Prediction)`, `H Antigen(Serotype Prediction)`)
+
+#Change all '-' to unknown
+Antigen_data <- Antigen_data %>% mutate(`O Antigen(Serotype Prediction)` = str_replace_all(`O Antigen(Serotype Prediction)`, "-", "unknown"))
+
+#Change 'uncertain' to 'unknown'
+Antigen_data <- Antigen_data %>% mutate(`O Antigen(Serotype Prediction)` = str_replace_all(`O Antigen(Serotype Prediction)`, "uncertain", "unknown"))
+
+#Change the column names for O & H antigens
+Antigen_data <- Antigen_data %>% rename(O_Antigen = `O Antigen(Serotype Prediction)`) %>% 
+  rename(H_Antigen = `H Antigen(Serotype Prediction)`)
+
+#Add a new column for serotype
+Antigen_data <- Antigen_data %>%
+  mutate(Serotype = if_else(O_Antigen == "unknown", O_Antigen, paste(O_Antigen, H_Antigen, sep = ":")))
+
+#Read in IncF data
+IncF_RST <- read_delim("~/Desktop/Honours/Data/R_ST504/analysis/pipelord/IncF_RST.txt", delim = "\t", col_names = TRUE, show_col_types = FALSE)
+
+#Make IncF_RST sync with tree lables
+IncF_RST <- IncF_RST %>% filter(name %in% sample_names$name)
+
+#Make a copy of IncF RST named IncF_RST3
+IncF_RST3 <- IncF_RST
+
+#Rename the IncF RST column to be IncF_RST
+IncF_RST3 <- IncF_RST3 %>%
+  rename(IncF_RST = `IncF RST`)
+
+
+#Read in genotype data
+genotype <- read_delim("~/Desktop/Honours/Data/R_ST504/analysis/pipelord/genotype.txt", delim = "\t", col_names = TRUE, show_col_types = FALSE)
+
+#Remove .fasta from the "name" column
+genotype <- genotype %>% mutate(name = str_replace_all(name, "\\.fasta", ""))
+
+#Add genotype data for genes (specifically shigatoxins), use filter(GENE %in% c("gene1", "gene2"))
+genotype4 <- genotype %>% filter(GENE %in% c("stx1B", "stxA", "stx2A", "stx2B", "iucD", "fyuA/psn", "kpsT", "neuC", "senB", "east1", "escC", "espA", "iroN", "cdtA", "iss", "sfaE", "cvaA", "cvaB", "cvaC", "eae"))
+
+#Change dataframe to have columns: name, GENE, present
+genotype4 <- genotype4 %>% mutate(Presence = 1) %>% select(name, GENE, Presence)
+
+#Join dataframe by 'name', then remove any NA values in 'GENE' column
+genotype4 <- left_join(sample_names, genotype4, by = "name") %>%
+  complete(name, GENE, fill = list(Presence = 0)) %>%
+  filter(!is.na(GENE))
+
+#Changing the values in cell from 0 or 1 to 'absent' or 'present'
+genotype4 <- genotype4 %>% mutate(Presence = if_else(Presence == 0, 'Absent', 'Present'))
+
+
+```
+
+```{r colV Marker data}
+
+#Read in the colV_status df
+colV_status <- read_delim("~/Desktop/Honours/Data/R_ST504/analysis/pipelord/colV_status.txt", delim = "\t", col_names = TRUE, show_col_types = FALSE)
+
+#Find colV database (colV_zoetis) in the genotype df
+genotype %>% select(DATABASE) %>% unique
+
+#Join colV df with genotype filtered df (select name, senB %>% full_join(colV_status, by = 'name')) then: filter(senB = 1, colv = 1)
+gene_colV <- genotype4 %>% select(name, GENE, Presence) %>% full_join(colV_status, by = 'name') %>% filter(GENE == 'senB') 
+
+#In gene_colV, change "presence" column to be 1s & 0s to show senB carriage, and pivot wider
+plasmid_marker <- gene_colV %>% mutate(Presence = ifelse(Presence == "Present", 1, 0)) %>% pivot_wider(names_from = GENE, values_from = Presence, names_prefix = "")
+
+#Find out how many samples have colV, senB, neither/other, or both (Presence = senB carriage, ColV = 1/0)
+tally_gene <- plasmid_marker %>% group_by(senB, ColV) %>% tally()
+
+#Make df for plasmid type containing: serotype, IncF RST, plasmid marker
+Sankey_df <- Antigen_data %>% select(name, Serotype) %>% left_join(select(IncF_RST3, name, IncF_RST), by = 'name') %>% full_join(plasmid_marker, by = 'name')
+
+#Rename all "F-:A-:B-" to be "none"
+Sankey_df <- Sankey_df %>% mutate(IncF_RST = str_replace_all(IncF_RST, "F-:A-:B-", "None"))
+
+#Make a tally of IncF RST & gene markers to see which samples are associated with each plasmid/assembly
+IncF_plasmid_tally <- Sankey_df %>% group_by(IncF_RST, senB, ColV) %>% unique() %>% tally()
+
+#IncF Types associated with plasmid marker carriage:
+#F2:A-:B-, F2:A-:B45, F35:A-:B-, F6?*:A-:B-, F6*:A-:B-, F6*:A-:B45, F95:A-:B45, F95!/F2!:A-:B45, F95!/F35!:A-:B45, None (n=1). 
+#Determine all unique IncF types
+Sankey_df$IncF_RST %>% unique()
+# F34:A-:B-"        "F103:A-:B-"      
+# "F59*:A-:B-"       "F59?*:A-:B-"      "F10:A-:B-"
+
+#Change all other IncF types (bar None) to be Other
+Sankey_df <- Sankey_df %>% mutate(IncF_RST = str_replace_all(IncF_RST, "F34:A-:B-", "Other")) %>%
+  mutate(IncF_RST = str_replace_all(IncF_RST, "F103:A-:B-", "Other")) %>% 
+  mutate(IncF_RST = str_replace_all(IncF_RST, "F59\\*:A-:B-", "Other")) %>%
+  mutate(IncF_RST = str_replace_all(IncF_RST, "F59\\?\\*:A-:B-", "Other")) %>%
+  mutate(IncF_RST = str_replace_all(IncF_RST, "F10:A-:B-", "Other"))
+
+#Try to separate IncF alleles in new df
+Sankey_new <- Sankey_df %>% select(name, Serotype, ColV, senB, IncF_RST) %>% 
+  mutate(F = IncF_RST, A = IncF_RST, B = IncF_RST)
+
+#Replace the strings for the IncF_RST copies, keeping only one allele type in for each
+Sankey_new <- Sankey_new %>% mutate(F = str_replace_all(F, "^F95.*", "F95")) %>% 
+  mutate(F = str_replace_all(F, "^F2.*", "F2")) %>%
+  mutate(F = str_replace_all(F, "^F35.*", "F35")) %>%
+  mutate(F = str_replace_all(F, "^F6\\?\\*.*", "F6\\?\\*")) %>%
+  mutate(F = str_replace_all(F, "^F6\\*.*", "F6\\*")) %>%
+  mutate(F = str_replace_all(F, "^F95\\!\\/F2\\!.*", "F95\\!\\/F2\\!")) %>%
+  mutate(F = str_replace_all(F, "^F95\\!\\/F35\\!.*", "F95\\!\\/F35\\!")) 
+
+Sankey_new <- Sankey_new %>% mutate(A = str_replace_all(A, ".*:A-:.*", "A-"))
+
+Sankey_new <- Sankey_new %>% mutate(B = str_replace_all(B, ".*:B-", "B-"))
+
+Sankey_new <- Sankey_new %>% mutate(B = str_replace_all(B, ".*:B45", "B45"))
+
+#Add an extra column in Sankey_df called plasmid type, which states whether it is senB, colV, ColV + senB, Other, or None
+Sankey_df <- Sankey_df %>% mutate(
+  Plasmid_type = case_when(
+    ColV == 1 & senB == 1 ~ "ColV & senB",
+    ColV == 1 ~ "ColV",
+    senB == 1 ~ "senB",
+    ColV == 1 & IncF_RST == "None" ~ "None",
+    ColV == 0 & senB == 0 & IncF_RST == "None" ~ "None",
+    ColV == 0 & senB == 0 & IncF_RST == "Other" ~ "Other",
+    ColV == 0 & senB == 0 & IncF_RST == "F2:A-:B45" ~ "Other",
+    ColV == 0 & senB == 0 & IncF_RST == "F35:A-:B-" ~ "Other",
+    ColV == 0 & senB == 0 & grepl("F6\\*:A-:B-", IncF_RST) ~ "Other",
+    ColV == 0 & senB == 0 & IncF_RST == "F95:A-:B45" ~ "Other"))
+
+Sankey_df <- Sankey_df %>% rename(IncF = IncF_RST)
+
+
+```
+
+
+```{r Sankey Attempt 3}
+
+#Left_join Anitgen_data & IncF_RST
+serotype_to_rst <- Antigen_data %>% inner_join(IncF_RST3, by = "name") %>% group_by(Serotype, IncF_RST) %>% summarise(weight = n(), .groups = "drop")
+
+#Join Sankey_df (Plasmid Type column)
+rst_to_plasmid <- IncF_RST3 %>%
+  inner_join(Sankey_df, by = "name") %>%
+  group_by(IncF_RST, Plasmid_type) %>%
+  summarise(weight = n(), .groups = "drop")
+
+#Create nodes
+unique_nodes <- unique(c(serotype_to_rst$Serotype, serotype_to_rst$IncF_RST, rst_to_plasmid$Plasmid_type))
+nodes <- data.frame(id = seq_along(unique_nodes) - 1, name = unique_nodes)
+
+# Convert Serotype → IncF RST
+serotype_to_rst <- serotype_to_rst %>%
+  mutate(from = match(Serotype, nodes$name) - 1,
+         to = match(IncF_RST, nodes$name) - 1)
+
+# Convert IncF RST → Plasmid Type
+rst_to_plasmid <- rst_to_plasmid %>%
+  mutate(from = match(IncF_RST, nodes$name) - 1,
+         to = match(Plasmid_type, nodes$name) - 1)
+
+# Combine both flows into the final links dataframe
+links <- bind_rows(
+  serotype_to_rst %>% select(from, to, weight),
+  rst_to_plasmid %>% select(from, to, weight))
+
+
+#Generate the Sankey chart
+highchart() %>%
+  hc_chart(type = "sankey") %>%
+  hc_add_series(
+    data = links,
+    nodes = list_parse(nodes),
+    name = "Serotype → IncF RST → Plasmid Type"
+  ) %>%
+  hc_title(text = "Plasmid Carriage") %>%
+  hc_tooltip(pointFormat = "{point.fromNode.name} → {point.toNode.name}: <b>{point.weight}</b>")
+
+```
+
+```{r Pie chart}
+#Replace NAs in "plasmid type" column 
+Sankey_df <- Sankey_df %>% mutate(Plasmid_type = replace_na(Plasmid_type, "None"))
+plasmid_counts <- table(Sankey_df$Plasmid_type)
+plasmid_counts <- plasmid_counts[!is.na(names(plasmid_counts))]
+
+#Pie chart 
+#Set colours
+pie_cols <- brewer.pal(5, "Set2") 
+pie(plasmid_counts, border = "white", col = pie_cols)
+
+```
+
+
+
+
+
+
+

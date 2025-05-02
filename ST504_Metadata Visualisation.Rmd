@@ -1,0 +1,174 @@
+---
+title: "Metadata Visualisation"
+output: html_document
+date: "2025-01-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(phytools)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r Read in Enterobase Data}
+EB_data <- read_delim(("~/Desktop/Honours/Data/ST504/bioinformatic_analysis/ST504_15-10-2024_w_name.txt"), 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+
+#Read in QC_pass_genomes 
+QC_pass_genomes_df <- read.table("/Users/tamara/Desktop/Honours/Data/R_ST504/QC_pass_genomes.txt", header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+
+
+#Find out which assemblies are not in the QC pass file
+EB_QC_fail <- EB_data[!EB_data$name %in% QC_pass_genomes_df$name, ]
+EB_data$name <- as.character(EB_data$name)
+
+#Make a df for EB_QC_pass
+
+EB_data_QC_pass <- EB_data[!(EB_data$name %in% c(
+"ERR8098220", "SRR13515309", "SRR29077506", "SRR29138077", "SRR29252315",
+"SRR29256131", "SRR30137226", "ESC_VA7264AA_AS", "ESC_VA7273AA_AS",
+"ESC_VA7279AA_AS", "ESC_VA7263AA_AS", "ESC_VA7274AA_AS", "ESC_VA7276AA_AS",
+"ESC_LA4847AA_AS", "ESC_AA2979AA_AS", "ESC_RA4790AA_AS", "ESC_VA7277AA_AS",
+"ESC_EC2563AA_AS", "ESC_VA7265AA_AS", "ESC_VA7275AA_AS", "ESC_VA7822AA_AS")), ]
+
+```
+
+```{r Create a new DF with only the information we want to extrapolate}
+
+#Create a new DF containing only the metadata we are interested in
+EB_QC_metadata <- EB_data_QC_pass %>% select("name", "Country", "Collection Year", "Source Type", "Source Niche", "Source Details") 
+
+#Rename Column names to have no space
+EB_QC_metadata <- EB_QC_metadata %>% rename(Source_Type = "Source Type") %>% 
+  rename(Collection_Year = "Collection Year") %>% rename(Source_Niche = "Source Niche") %>% rename(Source_Details = "Source Details")
+
+#Make a new column with curated Source type
+EB_QC_metadata$Curated_Source <- paste(EB_QC_metadata$Source_Type, EB_QC_metadata$Source_Niche, EB_QC_metadata$Source_Details)
+
+#Filter rows to only include those that have "Human" in them
+EB_QC_metadata <- EB_QC_metadata %>% mutate(Curated_Source = case_when(grepl("Human", Curated_Source) ~ "Human", grepl("Environment", Curated_Source) ~ "Environment", TRUE ~ NA_character_))
+
+#Replace all NAs with "Unknown"
+EB_QC_metadata <- EB_QC_metadata %>% mutate(across(everything(), ~ifelse(is.na(.), "Unknown", .)))
+
+```
+
+```{r Country Data Visualisation}
+
+#Create a DF with data summary
+summary_country <- EB_QC_metadata %>% count(Country) %>%
+  mutate(Country = fct_reorder(Country, n))
+
+
+#Create the Column Graph
+cunt_plot <- ggplot(summary_country, aes(x = Country, y = n, fill = Country)) + geom_bar(stat = "identity") + scale_fill_manual(
+  values = c(
+    "Australia" = "#A23C26",
+    "Belgium" = "#748C69",
+    "Cambodia" = "#405580",
+    "Canada" = "#E2552C",
+    "Denmark" = "#FF9A90",
+    "France" = "#BDB0D0",
+    "Germany" = "#515B87",
+    "Kenya" = "#F8D974",
+    "Mexico" = "#00AB78",
+    "Netherlands" = "#42BDCB",
+    "Peru" = "#BCABA0",
+    "Portugal" = "#B99984",
+    "Switzerland" = "#EFD1C6",
+    "United Kingdom" = "#578CA9",
+    "United States" = "#5A7247",
+    "Unknown" = "#e0e0e0")) + 
+  labs(title = "Country of Origin", x = "Country", y = "Assemblies (Count)") + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(
+  angle = 90,
+  hjust = 1,
+  vjust = 0.5, 
+  size = 15, 
+  margin = margin(t=8))) + 
+  theme(plot.title = element_text(hjust = 0.5),
+           plot.margin = margin(20, 20, 60, 50), 
+        legend.position = "none")
+
+```
+
+```{r Collection Year Visualisation}
+
+#Create a DF with data summary
+summary_year <- EB_QC_metadata %>% count(Collection_Year) 
+  #mutate(Collection_Year = fct_reorder(Collection_Year, n))
+
+#Create a Column Graph
+year_plot <- ggplot(summary_year,
+       aes(x = Collection_Year, y = n, fill = Collection_Year)) + geom_bar(stat = "identity") + scale_fill_manual(
+         values = c(
+           "1988" = "#4169E1",
+           "2007" = "#6495ED",
+           "2009" = "#4682B4",
+           "2011" = "#5F9EA0",
+           "2012" = "#20B2AA",
+           "2013" = "#66CDAA",
+           "2014" = "#2E8B57",
+           "2015" = "#3CB371",
+           "2016" = "#9ACD32",
+           "2017" = "#006400",
+           "2018" = "#228B22",
+           "2019" = "#98FB98",
+           "2020" = "#800080",
+           "2021" = "#8A2BE2",
+           "2022" = "#4B0082",
+           "2023" = "#483D8B",
+           "2024" = "#2F4F4F",
+           "Unknown" = "#e0e0e0")) + 
+  labs(title = "Collection Year", y = "Assemblies (Count)", x = "Collection Year") + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(
+         angle = 90,
+         hjust = 1,
+         vjust = 0.5, 
+         size = 15, 
+         margin = margin(t=8)
+       )) + 
+  theme(plot.title = element_text(hjust = 0.5),
+                  plot.margin = margin(20, 20, 60, 50),
+        legend.position = "none")
+
+```
+
+```{r Source Type Visualisation}
+#Create a DF with summary
+summary_source <- EB_QC_metadata %>% count(Curated_Source) %>%
+  mutate(Curated_Source = fct_reorder(Curated_Source, n))
+
+#Create a column graph 
+ggplot(summary_source,
+       aes(x = Curated_Source, y = n, fill = Curated_Source)) + geom_bar(stat = "identity") + scale_fill_manual(
+         values = c("Human" = "#FF6347", "Environment" = "#FF8C00", "Unknown" = "#e0e0e0")) + 
+  labs(title = "Source Origin", y = "Assemblies (Count)", x = "Source Type") + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(
+         angle = 90,
+         hjust = 1,
+         vjust = 0.5,  
+         size = 15,
+         margin = margin(t=8)
+       )) + 
+  theme(plot.title = element_text(hjust = 0.5),
+                  plot.margin = margin(20, 20, 60, 50))
+
+
+```
+
+
+
+
+
+
+
+
+
